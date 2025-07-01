@@ -10,7 +10,7 @@
 # If not specified, defaults to "haiku". 
 # Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
 
-default_model: "googleoai.gemini-2.5-flash-lite-preview-06-17"
+default_model: "deepseek.deepseek-chat"
 
 # Logging and Console Configuration:
 logger:

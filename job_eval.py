@@ -1,6 +1,7 @@
 from datetime import date
+import json
 from pydantic import BaseModel
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Literal
 from mcp_agent.core.fastagent import FastAgent
 from mcp_agent.core.request_params import RequestParams
 from utils import remove_json_fences
@@ -58,22 +59,30 @@ IMPORTANT: Your response should be ONLY the JSON object without any code fences,
 
     @staticmethod
     def request_params() -> RequestParams:
-        return RequestParams(
-            maxTokens = 8192,
-            temperature = 0.4,
-            use_history = False
-        )
+        return RequestParams(maxTokens=8192, temperature=0.4, use_history=False)
 
 
-def spawn_workflow() -> Callable[[str, str], Awaitable[str]]:
+class Result(BaseModel):
+    eval: str
+    rating: Literal["EXCELLENT", "GOOD", "FAIR", "POOR"]
+
+
+def spawn_workflow() -> Callable[[str, str], Awaitable[Result]]:
     fast = FastAgent("job-eval", parse_cli_args=False)
 
     @fast.agent(**Evaluator().model_dump(), request_params=Evaluator.request_params())
-    @fast.agent(**EvalSummary().model_dump(), request_params=EvalSummary.request_params())
-    async def workflow(resume: str, job_description: str) -> str:
+    @fast.agent(
+        **EvalSummary().model_dump(), request_params=EvalSummary.request_params()
+    )
+    async def workflow(resume: str, job_description: str) -> Result:
         async with fast.run() as agent:
             evaluation = await agent.eval(Evaluator.prompt(resume, job_description))
-            return remove_json_fences(await agent.eval_summary(evaluation))
+            json_str = remove_json_fences(await agent.eval_summary(evaluation))
+
+            return Result(
+                eval=evaluation,
+                rating=json.loads(json_str)["rating"],
+            )
 
     return workflow
 
@@ -84,7 +93,12 @@ if __name__ == "__main__":
     import argparse
 
     cliparser = argparse.ArgumentParser(description="评判岗位是否为优质工作。")
-    cliparser.add_argument("--resume", help="简历文件路径 (目前只支持文本文件，推荐使用Markdown)", type=str, required=True)
+    cliparser.add_argument(
+        "--resume",
+        help="简历文件路径 (目前只支持文本文件，推荐使用Markdown)",
+        type=str,
+        required=True,
+    )
     args, _ = cliparser.parse_known_args()
 
     async def main() -> None:

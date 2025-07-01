@@ -38,6 +38,10 @@ ENV/
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
 *.swp
 *.swo
+
+resume.md
+jobs.json
