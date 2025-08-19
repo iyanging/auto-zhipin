@@ -1,0 +1,111 @@
+[project]
+name = "auto-zhipin"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "alembic>=1.16.4",
+    "colorlog>=6.9.0",
+    "litellm>=1.76.0",
+    "pendulum>=3.1.0",
+    "playwright>=1.54.0",
+    "playwright-stealth>=2.0.0",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "sqlalchemy[asyncio]>=2.0.43",
+    "typer-slim>=0.16.1",
+    "yarl>=1.20.1",
+]
+
+[dependency-groups]
+dev = ["pre-commit>=4.3.0", "pyright>=1.1.404"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["auto_zhipin"]
+
+[tool.pyright]
+exclude = [
+    ".venv/",
+    "venv/",
+    "migrations/",
+]
+stubPath = "./typings"
+typeCheckingMode = "strict"
+enableTypeIgnoreComments = false
+deprecateTypingAliases = true
+reportCallInDefaultInitializer = true
+reportImplicitOverride = true
+reportMissingTypeStubs = false
+reportImportCycles = true
+reportMissingSuperCall = true
+reportPropertyTypeMismatch = true
+reportShadowedImports = true
+reportUninitializedInstanceVariable = true
+reportUnnecessaryTypeIgnoreComment = true
+reportUnusedCallResult = true
+
+[tool.ruff]
+line-length = 99
+indent-width = 4
+extend-exclude = [
+    "*.pyi",
+    "migrations",
+]
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "FAST",
+    "ASYNC",
+    "S",
+    "BLE",
+    "FBT",
+    "B",
+    "A",
+    "C4",
+    "DTZ",
+    "ISC",
+    "LOG",
+    "G",
+    "INP",
+    "PIE",
+    "T20",
+    "RSE",
+    "SLF",
+    "SIM",
+    "TID",
+    "ARG",
+    "PTH",
+    "FLY",
+    "I",
+    "C90",
+    "N",
+    "PERF",
+    "E",
+    "W",
+    "F",
+    "PL",
+    "UP",
+    "RUF",
+    "TRY",
+]
+fixable = ["ALL"]
+ignore = ["TRY002", "TRY003", "PLR0913", "UP040", "S104", "PLW3201", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__.annotations".msg = "Use future annotations MUST take care of `BaseModel.model_rebuild()`"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"

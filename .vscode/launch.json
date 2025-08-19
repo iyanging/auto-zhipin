@@ -1,0 +1,22 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "auto-zhipin",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "auto_zhipin",
+      "args": [
+        "--from-url",
+        "https://www.zhipin.com/web/geek/jobs?city=101210100&jobType=1901&salary=406&experience=106&degree=203&industry=100020",
+        "--job-count",
+        "128"
+      ],
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    }
+  ]
+}

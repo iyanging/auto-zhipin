@@ -1,0 +1,42 @@
+{
+  "version": "0.2",
+  "ignorePaths": [
+    ".gitignore",
+    ".git",
+    "*.pyi",
+    "migrations",
+    "alembic.ini"
+  ],
+  "dictionaryDefinitions": [],
+  "dictionaries": [
+    "companies",
+    "misc",
+    "softwareTerms",
+    "typescript",
+    "node",
+    "python",
+    "html",
+    "css",
+    "bash",
+    "filetypes",
+    "npm",
+    "docker",
+    "k8s",
+    "python-common",
+    "sql"
+  ],
+  "words": [
+    "levelname",
+    "litellm",
+    "networkidle",
+    "requestfinished",
+    "sessionmaker",
+    "ufownl",
+    "unmarshal",
+    "wapi",
+    "zhipin",
+    "zpgeek"
+  ],
+  "ignoreWords": [],
+  "import": []
+}
