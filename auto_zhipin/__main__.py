@@ -4,6 +4,7 @@ from typing import Annotated
 
 import colorlog
 import typer
+from alembic.config import CommandLine as AlembicCommandLine
 
 from auto_zhipin.boss_zhipin import BossZhipin, Job
 from auto_zhipin.db import Cookie, DatabaseContext
@@ -14,7 +15,7 @@ async def amain(*, from_url: str, job_count: int, concurrency: int) -> None:
     db = DatabaseContext()
 
     async def auto_zhipin() -> None:
-        async with BossZhipin() as boss_zhipin:
+        async with BossZhipin(headless=False) as boss_zhipin:
             await login(boss_zhipin)
 
             job_queue = asyncio.Queue[Job](concurrency)
@@ -59,6 +60,10 @@ async def amain(*, from_url: str, job_count: int, concurrency: int) -> None:
     await auto_zhipin()
 
 
+def alembic_upgrade_head():
+    AlembicCommandLine("alembic").main(["upgrade", "head"])
+
+
 def main(
     *,
     from_url: Annotated[str, typer.Option(help="The filtered job list URL")],
@@ -66,6 +71,8 @@ def main(
     concurrency: Annotated[int, typer.Option(help="The max concurrency of job evaluation")] = 7,
 ):
     setup_logging()
+
+    alembic_upgrade_head()
 
     asyncio.run(
         amain(

@@ -19,6 +19,17 @@ dependencies = [
     "yarl>=1.20.1",
 ]
 
+[tool.alembic]
+# path to migration scripts
+script_location = "%(here)s/migrations"
+
+# template used to generate migration file names; The default value is %%(rev)s_%%(slug)s
+# Uncomment the line below if you want the files to be prepended with date and time
+# file_template = %%(year)d_%%(month).2d_%%(day).2d_%%(hour).2d%%(minute).2d-%%(rev)s_%%(slug)s
+
+# additional paths to be prepended to sys.path. defaults to the current working directory.
+prepend_sys_path = ["."]
+
 [dependency-groups]
 dev = ["pre-commit>=4.3.0", "pyright>=1.1.404"]
 
@@ -30,11 +41,7 @@ build-backend = "hatchling.build"
 packages = ["auto_zhipin"]
 
 [tool.pyright]
-exclude = [
-    ".venv/",
-    "venv/",
-    "migrations/",
-]
+exclude = [".venv/", "venv/", "migrations/"]
 stubPath = "./typings"
 typeCheckingMode = "strict"
 enableTypeIgnoreComments = false
@@ -53,10 +60,7 @@ reportUnusedCallResult = true
 [tool.ruff]
 line-length = 99
 indent-width = 4
-extend-exclude = [
-    "*.pyi",
-    "migrations",
-]
+extend-exclude = ["*.pyi", "migrations"]
 
 [tool.ruff.lint]
 preview = true
@@ -96,7 +100,17 @@ select = [
     "TRY",
 ]
 fixable = ["ALL"]
-ignore = ["TRY002", "TRY003", "PLR0913", "UP040", "S104", "PLW3201", "RUF001", "RUF002", "RUF003"]
+ignore = [
+    "TRY002",
+    "TRY003",
+    "PLR0913",
+    "UP040",
+    "S104",
+    "PLW3201",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__.annotations".msg = "Use future annotations MUST take care of `BaseModel.model_rebuild()`"
