@@ -10,10 +10,10 @@
       "request": "launch",
       "module": "auto_zhipin",
       "args": [
-        "--from-url",
-        "https://www.zhipin.com/web/geek/jobs?city=101210100&jobType=1901&salary=406&experience=106&degree=203&industry=100020",
         "--job-count",
-        "128"
+        "128",
+        "--from-url",
+        "https://www.zhipin.com/web/geek/jobs?city=101210100&jobType=1901&salary=406&experience=106&degree=203&industry=100020"
       ],
       "envFile": "${workspaceFolder}/.env",
       "justMyCode": false

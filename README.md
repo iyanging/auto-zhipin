@@ -1,6 +1,11 @@
 # Auto Zhipin
 
-> Inspired & Copied by [ufownl/auto-zhipin](https://github.com/ufownl/auto-zhipin)
+> Inspired by [ufownl/auto-zhipin](https://github.com/ufownl/auto-zhipin)
+
+## Installation
+
+* `uv sync --frozen`
+* `uv run playwright install`
 
 ## Usage
 
@@ -12,4 +17,4 @@
 
 * In your browser, select filters, and get the url, such as `https://www.zhipin.com/web/geek/jobs?city=101210100&jobType=1901&salary=406&experience=106&degree=203&industry=100020&scale=303`
 
-* `uv run auto_zhipin --from-url {JOB_LIST_URL}`
+* `uv run auto_zhipin --job-count 128 --from-url {JOB_LIST_URL}`
