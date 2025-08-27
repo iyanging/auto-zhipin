@@ -185,7 +185,51 @@ class Cookie(Base):
         return cookies
 
 
+class JobDetail(Base):
+    __tablename__ = "job_detail"
+
+    company_encrypt_brand_id: Mapped[str] = mapped_column(comment="公司-id")
+    company_brand_name: Mapped[str] = mapped_column(comment="公司-名称, eg: 字节跳动")
+    company_stage_name: Mapped[str] = mapped_column(comment="公司-融资阶段, eg: 已上市")
+    company_scale_name: Mapped[str] = mapped_column(comment="公司-规模, eg: 100-499人")
+    company_industry_name: Mapped[str] = mapped_column(comment="公司-行业分类, eg: 互联网")
+    company_introduce: Mapped[str] = mapped_column(comment="公司-介绍")
+
+    job_encrypt_id: Mapped[str] = mapped_column(primary_key=True, comment="职位-id")
+    job_name: Mapped[str] = mapped_column(comment="职位-名称, eg: 高级python开发工程师")
+    job_city_name: Mapped[str] = mapped_column(comment="职位-工作地-城市, eg: 杭州")
+    job_area_district: Mapped[str] = mapped_column(comment="职位-工作地-区域, eg: 西湖区")
+    job_business_district: Mapped[str] = mapped_column(comment="职位-工作地-商圈, eg: 西溪")
+    job_address: Mapped[str] = mapped_column(comment="职位-工作地-详细地址")
+    job_experience_name: Mapped[str] = mapped_column(comment="职位-经验要求, eg: 5-10年")
+    job_degree: Mapped[str] = mapped_column(comment="职位-学历要求, eg: 本科")
+    job_salary_description: Mapped[str] = mapped_column(comment="职位-薪资待遇, eg: 12-24K")
+    job_description: Mapped[str] = mapped_column(comment="职位-职位详情")
+
+
 class JobEvaluation(Base):
     __tablename__ = "job_evaluation"
 
     job_encrypt_id: Mapped[str] = mapped_column(primary_key=True)
+
+    technology_match_score: Mapped[Decimal] = mapped_column(comment="技术匹配度-0~5分")
+    technology_match_reason: Mapped[str] = mapped_column(comment="技术匹配度-打分原因")
+
+    project_experience_match_score: Mapped[Decimal] = mapped_column(comment="项目经验匹配度-0~5分")
+    project_experience_match_reason: Mapped[str] = mapped_column(comment="项目经验匹配度-打分原因")
+
+    industry_experience_match_score: Mapped[Decimal] = mapped_column(
+        comment="行业经验匹配度-0~5分"
+    )
+    industry_experience_match_reason: Mapped[str] = mapped_column(
+        comment="行业经验匹配度-打分原因"
+    )
+
+    level_match_score: Mapped[Decimal] = mapped_column(comment="职级匹配度-0~5分")
+    level_match_reason: Mapped[str] = mapped_column(comment="职级匹配度-打分原因")
+
+    growth_potential_score: Mapped[Decimal] = mapped_column(comment="工作/管理潜力-0~5分")
+    growth_potential_reason: Mapped[str] = mapped_column(comment="工作/管理潜力-打分原因")
+
+    technical_depth_potential_score: Mapped[Decimal] = mapped_column(comment="技术潜力-0~5分")
+    technical_depth_potential_reason: Mapped[str] = mapped_column(comment="技术潜力-打分原因")

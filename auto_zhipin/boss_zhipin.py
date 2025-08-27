@@ -21,53 +21,52 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from pydantic import BaseModel, Field, TypeAdapter
 from yarl import URL
 
-from auto_zhipin.db import Cookie
+from auto_zhipin.db import Cookie, JobDetail
 
 
-class Job(BaseModel):
-    company_encrypt_brand_id: str
-    "公司-id"
-    company_brand_name: str
-    "公司-名称, eg: 字节跳动"
-    company_stage_name: str
-    "公司-融资阶段, eg: 已上市"
-    company_scale_name: str
-    "公司-规模, eg: 100-499人"
-    company_industry_name: str
-    "公司-行业分类, eg: 互联网"
-    company_introduce: str
-    "公司-介绍"
-
-    job_encrypt_id: str
-    "职位-id"
-    job_name: str
-    "职位-名称, eg: 高级python开发工程师"
-    job_city_name: str
-    "职位-工作地-城市, eg: 杭州"
-    job_area_district: str
-    "职位-工作地-区域, eg: 西湖区"
-    job_business_district: str
-    "职位-工作地-商圈, eg: 西溪"
-    job_address: str
-    "职位-工作地-详细地址"
-    job_experience_name: str
-    "职位-经验要求, eg: 5-10年"
-    job_degree: str
-    "职位-学历要求, eg: 本科"
-    job_salary_description: str
-    "职位-薪资待遇, eg: 12-24K"
-    job_description: str
-    "职位-职位详情"
-
-    boss_name: str
-    "招聘者-名称, eg: 刘女士"
-    boss_active_time_description: str
-    "招聘者-BOSS活跃状态, eg: 刚刚活跃"
+class RawJobInfo(BaseModel):
+    encrypt_id: str = Field(alias="encryptId")
+    job_name: str = Field(alias="jobName")
+    position_name: str = Field(alias="positionName")
+    location_name: str = Field(alias="locationName")
+    experience_name: str = Field(alias="experienceName")
+    degree_name: str = Field(alias="degreeName")
+    salary_desc: str = Field(alias="salaryDesc")
+    post_description: str = Field(alias="postDescription")
+    address: str
+    show_skills: list[str] = Field(alias="showSkills")
+    job_status_desc: str = Field(alias="jobStatusDesc")
 
 
-async def default_job_filter(job: Job) -> bool:  # noqa: RUF029
+class RawBossInfo(BaseModel):
+    name: str
+    title: str
+    active_time_desc: str = Field(alias="activeTimeDesc")
+    brand_name: str = Field(alias="brandName")
+
+
+class RawBrandComInfo(BaseModel):
+    encrypt_brand_id: str = Field(alias="encryptBrandId")
+    brand_name: str = Field(alias="brandName")
+    stage_name: str = Field(alias="stageName")
+    scale_name: str = Field(alias="scaleName")
+    industry_name: str = Field(alias="industryName")
+    introduce: str
+    labels: list[str]
+    customer_brand_name: str = Field(alias="customerBrandName")
+    customer_brand_stage_name: str = Field(alias="customerBrandStageName")
+
+
+class RawJobDetail(BaseModel):
+    security_id: str = Field(alias="securityId")
+    job_info: RawJobInfo = Field(alias="jobInfo")
+    boss_info: RawBossInfo = Field(alias="bossInfo")
+    brand_com_info: RawBrandComInfo = Field(alias="brandComInfo")
+
+
+async def default_job_filter(job: RawJobDetail) -> bool:  # noqa: RUF029
     # 过滤BOSS活跃状态
-    return not set(job.boss_active_time_description) & {"周月年"}
+    return not set(job.boss_info.active_time_desc) & {"周月年"}
 
 
 async def default_interval_delayer() -> None:
@@ -233,9 +232,9 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         from_url: str,
         count: int,
         *,
-        filter_func: Callable[[Job], Awaitable[bool]] = default_job_filter,
+        filter_func: Callable[[RawJobDetail], Awaitable[bool]] = default_job_filter,
         interval_func: Callable[[], Awaitable[None]] = default_interval_delayer,
-    ) -> AsyncGenerator[Job]:
+    ) -> AsyncGenerator[JobDetail]:
         ctx = await self._get_browser_ctx()
 
         encrypt_job_id_to_job_summary: dict[str, RawJobSummary] = {}
@@ -290,10 +289,11 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
 
                 # 构造 job
                 job_detail = job_detail_list[-1]
-                job_summary = encrypt_job_id_to_job_summary[job_detail.job_info.encrypt_id]
-                job = self._build_job(job_summary, job_detail)
 
-                if await filter_func(job):
+                if await filter_func(job_detail):
+                    job_summary = encrypt_job_id_to_job_summary[job_detail.job_info.encrypt_id]
+                    job = self._build_job_detail(job_summary, job_detail)
+
                     yield job
 
                 await interval_func()
@@ -384,8 +384,8 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         return TypeAdapter(type_).validate_json(body)
 
     @staticmethod
-    def _build_job(job_summary: "RawJobSummary", job_detail: "RawJobDetail") -> Job:
-        return Job(
+    def _build_job_detail(job_summary: "RawJobSummary", job_detail: "RawJobDetail") -> JobDetail:
+        return JobDetail(
             company_encrypt_brand_id=job_detail.brand_com_info.encrypt_brand_id,
             company_brand_name=job_detail.brand_com_info.brand_name,
             company_stage_name=job_detail.brand_com_info.stage_name,
@@ -402,8 +402,6 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
             job_degree=job_detail.job_info.degree_name,
             job_salary_description=job_detail.job_info.salary_desc,
             job_description=job_detail.job_info.post_description,
-            boss_name=job_detail.boss_info.name,
-            boss_active_time_description=job_detail.boss_info.active_time_desc,
         )
 
     @staticmethod
@@ -455,46 +453,6 @@ class RawJobList(BaseModel):
 
 class RawJobListResponse(BaseModel):
     zp_data: RawJobList = Field(alias="zpData")
-
-
-class RawJobInfo(BaseModel):
-    encrypt_id: str = Field(alias="encryptId")
-    job_name: str = Field(alias="jobName")
-    position_name: str = Field(alias="positionName")
-    location_name: str = Field(alias="locationName")
-    experience_name: str = Field(alias="experienceName")
-    degree_name: str = Field(alias="degreeName")
-    salary_desc: str = Field(alias="salaryDesc")
-    post_description: str = Field(alias="postDescription")
-    address: str
-    show_skills: list[str] = Field(alias="showSkills")
-    job_status_desc: str = Field(alias="jobStatusDesc")
-
-
-class RawBossInfo(BaseModel):
-    name: str
-    title: str
-    active_time_desc: str = Field(alias="activeTimeDesc")
-    brand_name: str = Field(alias="brandName")
-
-
-class RawBrandComInfo(BaseModel):
-    encrypt_brand_id: str = Field(alias="encryptBrandId")
-    brand_name: str = Field(alias="brandName")
-    stage_name: str = Field(alias="stageName")
-    scale_name: str = Field(alias="scaleName")
-    industry_name: str = Field(alias="industryName")
-    introduce: str
-    labels: list[str]
-    customer_brand_name: str = Field(alias="customerBrandName")
-    customer_brand_stage_name: str = Field(alias="customerBrandStageName")
-
-
-class RawJobDetail(BaseModel):
-    security_id: str = Field(alias="securityId")
-    job_info: RawJobInfo = Field(alias="jobInfo")
-    boss_info: RawBossInfo = Field(alias="bossInfo")
-    brand_com_info: RawBrandComInfo = Field(alias="brandComInfo")
 
 
 class RawJobDetailResponse(BaseModel):
