@@ -15,7 +15,7 @@ async def amain(*, from_url: str, job_count: int, concurrency: int) -> None:
     db = DatabaseContext()
 
     async def auto_zhipin() -> None:
-        async with BossZhipin(headless=False) as boss_zhipin:
+        async with BossZhipin(headless=True) as boss_zhipin:
             await login(boss_zhipin)
 
             job_queue = asyncio.Queue[Job](concurrency)

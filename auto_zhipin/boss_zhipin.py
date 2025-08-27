@@ -5,27 +5,23 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from decimal import Decimal
 from types import TracebackType
-from typing import ClassVar, Literal, override
+from typing import ClassVar, Literal, cast, override
 
+from browserforge.fingerprints import Screen
+from camoufox.async_api import AsyncCamoufox
 from playwright._impl._api_structures import SetCookieParam  # noqa: PLC2701
 from playwright.async_api import (
     Browser,
     BrowserContext,
-    Playwright,
-    async_playwright,
     expect,
 )
 from playwright.async_api import Cookie as PlaywrightCookie
 from playwright.async_api import Request as PlaywrightRequest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api._context_manager import PlaywrightContextManager
-from playwright_stealth import Stealth
 from pydantic import BaseModel, Field, TypeAdapter
 from yarl import URL
 
 from auto_zhipin.db import Cookie
-
-BrowserType = Literal["chromium", "firefox", "webkit"]
 
 
 class Job(BaseModel):
@@ -87,9 +83,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
     allow_to_show_login_page: bool
     wait_for_login_timeout_in_sec: int
 
-    playwright_ctx: PlaywrightContextManager
-    playwright: Playwright | None
-    browser_type: BrowserType
+    playwright: AsyncCamoufox
     browser: Browser | None
     browser_ctx: BrowserContext | None
 
@@ -97,7 +91,6 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         self,
         *,
         base_url: str = "https://www.zhipin.com",
-        browser_type: BrowserType = "chromium",
         headless: bool = True,
         allow_to_show_login_page: bool = True,
         wait_for_login_timeout_in_ms: int = 3 * 60,
@@ -109,39 +102,21 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         self.allow_to_show_login_page = allow_to_show_login_page
         self.wait_for_login_timeout_in_sec = wait_for_login_timeout_in_ms
 
-        self.playwright_ctx = async_playwright()
-        self.playwright = None
-        self.browser_type = browser_type
+        self.playwright = self._playwright_ctx(headless=headless)
         self.browser = None
         self.browser_ctx = None
 
     async def _get_browser_ctx(self) -> BrowserContext:
-        if self.playwright is None:
-            self.playwright = await self.playwright_ctx.__aenter__()  # noqa: PLC2801
-
         if self.browser is None:
-            self.browser = await self.playwright[self.browser_type].launch(
-                args=["--disable-blink-features=AutomationControlled"],
-                headless=self.headless,
-            )
+            self.browser = cast(Browser, await self.playwright.__aenter__())  # noqa: PLC2801
 
             self.logger.info(
-                "Playwright [headless=%s] browser [%s] bootstrapped",
+                "Playwright [headless=%s] browser bootstrapped",
                 self.headless,
-                self.browser_type,
             )
 
         if self.browser_ctx is None:
-            browser_ctx = await self.browser.new_context()
-
-            stealth = Stealth(
-                navigator_languages_override=("zh-CN", "zh"),
-                navigator_platform_override="Win64",
-                init_scripts_only=True,
-            )
-            await stealth.apply_stealth_async(browser_ctx)
-
-            self.browser_ctx = browser_ctx
+            self.browser_ctx = await self.browser.new_context()
 
         return self.browser_ctx
 
@@ -157,22 +132,15 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None:
+        self.logger.info("Playwright browser is shutting down")
+
         if self.browser_ctx is not None:
             await self.browser_ctx.__aexit__(exc_type, exc_value, traceback)
             self.browser_ctx = None
 
         if self.browser is not None:
-            self.logger.info(
-                "Playwright browser [%s] is shutting down",
-                self.browser_type,
-            )
-
             await self.browser.__aexit__(exc_type, exc_value, traceback)
             self.browser_ctx = None
-
-        self.playwright = None
-
-        await self.playwright_ctx.__aexit__(exc_type, exc_value, traceback)
 
     async def login(self, cookies: Sequence[Cookie]) -> Sequence[Cookie]:
         unmarshaled_cookies = [self._unmarshal_cookie(cookie) for cookie in cookies]
@@ -207,9 +175,8 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
             self.logger.info("Open a new / visible browser for user login")
 
             async with (
-                self.playwright_ctx as playwright,
-                await playwright[self.browser_type].launch(headless=False) as browser,
-                await browser.new_context() as ctx,
+                self._playwright_ctx(headless=False) as browser,
+                await cast(Browser, browser).new_context() as ctx,
             ):
                 raw_cookies = await self._wait_for_login(ctx)
 
@@ -324,7 +291,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
                 # 构造 job
                 job_detail = job_detail_list[-1]
                 job_summary = encrypt_job_id_to_job_summary[job_detail.job_info.encrypt_id]
-                job = self.build_job(job_summary, job_detail)
+                job = self._build_job(job_summary, job_detail)
 
                 if await filter_func(job):
                     yield job
@@ -417,7 +384,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         return TypeAdapter(type_).validate_json(body)
 
     @staticmethod
-    def build_job(job_summary: "RawJobSummary", job_detail: "RawJobDetail") -> Job:
+    def _build_job(job_summary: "RawJobSummary", job_detail: "RawJobDetail") -> Job:
         return Job(
             company_encrypt_brand_id=job_detail.brand_com_info.encrypt_brand_id,
             company_brand_name=job_detail.brand_com_info.brand_name,
@@ -437,6 +404,16 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
             job_description=job_detail.job_info.post_description,
             boss_name=job_detail.boss_info.name,
             boss_active_time_description=job_detail.boss_info.active_time_desc,
+        )
+
+    @staticmethod
+    def _playwright_ctx(*, headless: bool | Literal["virtual"]) -> AsyncCamoufox:
+        return AsyncCamoufox(
+            os="windows",
+            screen=Screen(max_width=1920, max_height=1080),
+            locale="zh-CN",
+            humanize=True,
+            headless=headless,
         )
 
 

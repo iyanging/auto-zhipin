@@ -5,7 +5,7 @@
 ## Installation
 
 * `uv sync --frozen`
-* `uv run playwright install`
+* `uv run camoufox fetch`
 
 ## Usage
 
