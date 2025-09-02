@@ -8,10 +8,12 @@ import sqlalchemy as sa
 import typer
 from alembic.config import CommandLine as AlembicCommandLine
 from asyncer import runnify
+from pydantic_ai.models import Model
 
 from auto_zhipin.boss_zhipin import BossZhipin
 from auto_zhipin.db import Cookie, DatabaseContext, JobDetail, JobEvaluation
 from auto_zhipin.evaluator import evaluate_job
+from auto_zhipin.llm import LLMModel, build_model
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +22,8 @@ db = DatabaseContext()
 
 class Logic:
     @staticmethod
-    async def seek(*, from_url: str, job_count: int) -> None:
-        async with BossZhipin(headless=False) as boss_zhipin:
+    async def seek(*, from_url: str, job_count: int, debug: bool, headless: bool) -> None:
+        async with BossZhipin(debug=debug, headless=headless) as boss_zhipin:
             async with db.begin():
                 saved_cookies = await Cookie.fetch_all(db.get())
 
@@ -37,8 +39,22 @@ class Logic:
                 logger.info("Saved %s", job)
 
     @staticmethod
-    async def evaluate(*, resume_path: Path, job_count: int, concurrency: int) -> None:
+    async def evaluate(
+        *,
+        resume_path: Path,
+        job_count: int,
+        concurrency: int,
+        llm_model: LLMModel,
+        llm_base_url: str | None,
+        llm_api_key: str,
+    ) -> None:
         resume = resume_path.read_text(encoding="utf-8")
+
+        model = build_model(
+            llm_model=llm_model,
+            llm_base_url=llm_base_url,
+            llm_api_key=llm_api_key,
+        )
 
         async with db.begin():
             unevaluated_job_list = (
@@ -66,6 +82,7 @@ class Logic:
                 Logic._evaluator(
                     resume,
                     job_queue,
+                    model=model,
                 )
             )
             for _ in range(concurrency)
@@ -84,12 +101,20 @@ class Logic:
         _ = await asyncio.gather(*workers, return_exceptions=True)
 
     @staticmethod
-    async def _evaluator(resume: str, job_queue: asyncio.Queue[JobDetail]) -> None:
+    async def _evaluator(
+        resume: str,
+        job_queue: asyncio.Queue[JobDetail],
+        model: Model,
+    ) -> None:
         while True:
             job = await job_queue.get()
 
             try:
-                evaluation = await evaluate_job(resume, job)
+                evaluation = await evaluate_job(
+                    resume=resume,
+                    job=job,
+                    model=model,
+                )
 
                 async with db.begin():
                     await JobEvaluation.save(db.get(), evaluation)
@@ -107,10 +132,14 @@ async def seek(
     *,
     from_url: Annotated[str, typer.Option(help="The filtered job list URL")],
     job_count: Annotated[int, typer.Option(help="The job count of current evaluation")],
+    debug: Annotated[bool, typer.Option(help="Whether to turn on debug")] = False,
+    headless: Annotated[bool, typer.Option(help="Whether to run browser in headless mode")] = True,
 ) -> None:
     await Logic().seek(
         from_url=from_url,
         job_count=job_count,
+        debug=debug,
+        headless=headless,
     )
 
 
@@ -121,11 +150,23 @@ async def evaluate(
     resume_path: Annotated[Path, typer.Option(help="The path of resume file (text)")],
     job_count: Annotated[int, typer.Option(help="The job count of this evaluation")],
     concurrency: Annotated[int, typer.Option(help="The max concurrency of this evaluation")] = 7,
+    llm_model: Annotated[LLMModel, typer.Option(help="The LLM model which is running evaluation")],
+    llm_base_url: Annotated[str | None, typer.Option(help="The LLM model service url")] = None,
+    llm_api_key: Annotated[
+        str,
+        typer.Option(
+            help="The LLM model service api-key",
+            envvar="AUTO_ZHIPIN_LLM_API_KEY",
+        ),
+    ],
 ) -> None:
     await Logic().evaluate(
         resume_path=resume_path,
         job_count=job_count,
         concurrency=concurrency,
+        llm_model=llm_model,
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
     )
 
 

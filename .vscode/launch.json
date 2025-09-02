@@ -5,16 +5,34 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "auto-zhipin",
+      "name": "seek",
       "type": "debugpy",
       "request": "launch",
       "module": "auto_zhipin",
       "args": [
         "seek",
+        "--debug",
         "--job-count",
         "128",
         "--from-url",
-        "https://www.zhipin.com/web/geek/jobs?city=101210100&jobType=1901&salary=406&experience=106&degree=203&industry=100020"
+        "https://www.zhipin.com/web/geek/jobs?city=101210100&jobType=1901&salary=406&experience=106&degree=203&industry=100020&query=Python"
+      ],
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "evaluate",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "auto_zhipin",
+      "args": [
+        "evaluate",
+        "--resume-path",
+        "${workspaceFolder}/resume.md",
+        "--job-count",
+        "128",
+        "--llm-model",
+        "deepseek-chat"
       ],
       "envFile": "${workspaceFolder}/.env",
       "justMyCode": false

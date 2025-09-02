@@ -1,4 +1,7 @@
+# Project-specific
 *.db
+trace-*.zip
+resume.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

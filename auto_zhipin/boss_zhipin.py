@@ -7,6 +7,7 @@ from decimal import Decimal
 from types import TracebackType
 from typing import ClassVar, Literal, cast, override
 
+import pendulum
 from browserforge.fingerprints import Screen
 from camoufox.async_api import AsyncCamoufox
 from playwright._impl._api_structures import SetCookieParam  # noqa: PLC2701
@@ -18,10 +19,11 @@ from playwright.async_api import (
 from playwright.async_api import Cookie as PlaywrightCookie
 from playwright.async_api import Request as PlaywrightRequest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from yarl import URL
 
 from auto_zhipin.db import Cookie, JobDetail
+from auto_zhipin.settings import settings
 
 
 class RawJobInfo(BaseModel):
@@ -77,6 +79,7 @@ async def default_interval_delayer() -> None:
 class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
     logger: ClassVar[logging.Logger] = logging.getLogger(__qualname__)
 
+    debug: bool
     base_url: URL
     headless: bool
     allow_to_show_login_page: bool
@@ -89,6 +92,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
     def __init__(
         self,
         *,
+        debug: bool = False,
         base_url: str = "https://www.zhipin.com",
         headless: bool = True,
         allow_to_show_login_page: bool = True,
@@ -96,6 +100,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
     ) -> None:
         super().__init__()
 
+        self.debug = debug
         self.base_url = URL(base_url)
         self.headless = headless
         self.allow_to_show_login_page = allow_to_show_login_page
@@ -117,6 +122,14 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         if self.browser_ctx is None:
             self.browser_ctx = await self.browser.new_context()
 
+            # only start tracing in the first run
+            if self.debug:
+                await self.browser_ctx.tracing.start(
+                    snapshots=True,
+                    screenshots=True,
+                    sources=True,
+                )
+
         return self.browser_ctx
 
     @override
@@ -134,6 +147,13 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         self.logger.info("Playwright browser is shutting down")
 
         if self.browser_ctx is not None:
+            trace_file = (
+                f"trace-{pendulum.now(settings.timezone).strftime('%Y-%m-%d_%H-%M-%S')}.zip"
+            )
+            await self.browser_ctx.tracing.stop(path=trace_file)
+
+            self.logger.info("Trace file saved as [%s]", trace_file)
+
             await self.browser_ctx.__aexit__(exc_type, exc_value, traceback)
             self.browser_ctx = None
 
@@ -245,12 +265,21 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
             if req.url.startswith(self._get_job_list_url_prefix()):
                 job_list_resp = await self._parse_response(req, RawJobListResponse)
 
+                if job_list_resp is None:
+                    self.logger.warning("Got invalid job-list response, ignore it")
+                    # 网页自身会重试，等待下一次请求
+                    return
+
                 for job_summary in job_list_resp.zp_data.job_list:
                     encrypt_job_id_to_job_summary[job_summary.encrypt_job_id] = job_summary
 
             # 保存右侧职位详情的响应
             elif req.url.startswith(self._get_job_detail_url_prefix()):
                 job_detail_resp = await self._parse_response(req, RawJobDetailResponse)
+
+                if job_detail_resp is None:
+                    raise BossZhipinError("Got invalid job-detail response")
+
                 job_detail = job_detail_resp.zp_data
 
                 job_detail_list.append(job_detail)
@@ -258,10 +287,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         async with await ctx.new_page() as page:
             page.on("requestfinished", on_request_finished)
 
-            _ = await page.goto(
-                from_url,
-                wait_until="load",
-            )
+            _ = await page.goto(from_url)
 
             # 左侧可以滚动的职位列表
             job_list_con = page.locator(".job-list-container")
@@ -374,14 +400,21 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
         return set_cookie
 
     @staticmethod
-    async def _parse_response[T: BaseModel](request: PlaywrightRequest, type_: type[T]) -> T:
+    async def _parse_response[T: BaseModel](
+        request: PlaywrightRequest,
+        type_: type[T],
+    ) -> T | None:
         resp = await request.response()
         if resp is None or not resp.ok:
             raise ProgrammingError("Error response should not be parsed")
 
         body = await resp.body()
 
-        return TypeAdapter(type_).validate_json(body)
+        try:
+            return TypeAdapter(type_).validate_json(body)
+
+        except ValidationError:
+            return None
 
     @staticmethod
     def _build_job_detail(job_summary: "RawJobSummary", job_detail: "RawJobDetail") -> JobDetail:

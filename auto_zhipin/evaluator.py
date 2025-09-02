@@ -5,9 +5,9 @@ from typing import TypedDict
 import pendulum
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai import Agent
+from pydantic_ai.models import Model
 
 from auto_zhipin.db import JobDetail, JobEvaluation
-from auto_zhipin.llm import build_model
 from auto_zhipin.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -62,11 +62,6 @@ example_output = Evaluation(
 
 
 evaluator_agent = Agent(
-    build_model(
-        llm_model=settings.llm_model,
-        llm_base_url=settings.llm_base_url,
-        llm_api_key=settings.llm_api_key.get_secret_value(),
-    ),
     output_type=Evaluation,
     system_prompt=f"""
 <Identifier>你是一位严谨的“职位-简历适配评估专家”，专精互联网行业的编程领域。</Identifier>
@@ -163,6 +158,7 @@ evaluator_agent = Agent(
 - 若职位描述或简历中关键信息缺失，仍给出 best-effort 分数，
   并在对应 reason 中明确写出“缺失信息：...”以供后续人工复核。
 - 理由必须**尽量精确**（包含关键词或短句证据），避免模糊陈述。
+- 如果职位与求职意向相去甚远，请直接按照输出要求，所有维度score为0，reason为“毫无关系”
 </Detail>
 
 <Output>
@@ -177,7 +173,12 @@ evaluator_agent = Agent(
 )
 
 
-async def evaluate_job(resume: str, job: JobDetail) -> JobEvaluation:
+async def evaluate_job(
+    *,
+    resume: str,
+    job: JobDetail,
+    model: Model,
+) -> JobEvaluation:
     logger.info("Evaluating job %s", job)
 
     user_prompt = f"""
@@ -208,7 +209,7 @@ async def evaluate_job(resume: str, job: JobDetail) -> JobEvaluation:
 """
     evaluation = None
 
-    async with evaluator_agent.run_stream(user_prompt) as result:
+    async with evaluator_agent.run_stream(user_prompt, model=model) as result:
         async for message, is_last in result.stream_structured():
             try:
                 evaluation = await result.validate_structured_output(

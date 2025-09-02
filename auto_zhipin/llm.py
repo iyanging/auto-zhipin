@@ -1,4 +1,5 @@
-from typing import Literal, override
+from enum import StrEnum
+from typing import override
 
 from openai import AsyncOpenAI
 from pydantic_ai.models import Model
@@ -8,7 +9,10 @@ from pydantic_ai.providers import Provider
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.moonshotai import MoonshotAIProvider
 
-LLMModel = Literal["deepseek-chat", "kimi-k2-0711-preview"]
+
+class LLMModel(StrEnum):
+    DEEPSEEK_CHAT = "deepseek-chat"
+    KIMI_K2_0711_PREVIEW = "kimi-k2-0711-preview"
 
 
 def build_model(
@@ -18,7 +22,7 @@ def build_model(
     llm_api_key: str,
 ) -> Model:
     match llm_model:
-        case "deepseek-chat":
+        case LLMModel.DEEPSEEK_CHAT:
             return OpenAIChatModel(
                 llm_model,
                 provider=CustomOpenAICompatProvider(
@@ -27,7 +31,7 @@ def build_model(
                 ),
             )
 
-        case "kimi-k2-0711-preview":
+        case LLMModel.KIMI_K2_0711_PREVIEW:
             return OpenAIChatModel(
                 llm_model,
                 provider=CustomOpenAICompatProvider(

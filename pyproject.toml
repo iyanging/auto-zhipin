@@ -13,7 +13,6 @@ dependencies = [
     "pendulum>=3.1.0",
     "pydantic>=2.11.7",
     "pydantic-ai-slim[openai]>=0.8.0",
-    "pydantic-settings>=2.10.1",
     "sqlalchemy[asyncio]>=2.0.43",
     "typer-slim>=0.16.1",
     "yarl>=1.20.1",
