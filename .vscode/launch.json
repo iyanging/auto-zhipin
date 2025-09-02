@@ -10,6 +10,7 @@
       "request": "launch",
       "module": "auto_zhipin",
       "args": [
+        "seek",
         "--job-count",
         "128",
         "--from-url",

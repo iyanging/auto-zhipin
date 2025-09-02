@@ -23,7 +23,7 @@ from sqlalchemy.types import TypeEngine
 from auto_zhipin.settings import settings
 
 
-class Base(MappedAsDataclass, DeclarativeBase):
+class Base(MappedAsDataclass, DeclarativeBase, kw_only=True):
     # Cite from old version docs [https://docs.sqlalchemy.org/en/14/orm/extensions/asyncio.html#preventing-implicit-io-when-using-asyncsession]:
     #     The Column.server_default value on the XXX column
     #           will not be refreshed by default after an INSERT;
@@ -83,6 +83,8 @@ class DatabaseContext:
     ) -> AsyncIterator[AsyncSessionTransaction]:
         session = self.session_maker()
 
+        token = self.session_ctx.set(session)
+
         try:
             yield session.begin()
 
@@ -96,6 +98,8 @@ class DatabaseContext:
 
             except BaseException:
                 self._logger.exception("Error occurred when commit transaction")
+
+            self.session_ctx.reset(token)
 
             await session.close()
 
@@ -111,19 +115,9 @@ class DatabaseContext:
                 existing_session = self.session_ctx.get()
 
                 if existing_session is None:
-                    token = None
-                    try:
-                        async with self.begin() as tx:
-                            token = self.session_ctx.set(tx.session)
-
-                            # session will auto commit if everything goes right
-                            return await func(*args, **kwargs)
-
-                    except BaseException:
-                        if token is not None:
-                            self.session_ctx.reset(token)
-
-                        raise
+                    async with self.begin():
+                        # session will auto commit if everything goes right
+                        return await func(*args, **kwargs)
 
                 else:
                     return await func(*args, **kwargs)
@@ -149,7 +143,7 @@ class TimeMixin(MappedAsDataclass, kw_only=True):
     )
 
 
-class Cookie(Base):
+class Cookie(Base, TimeMixin):
     __tablename__ = "cookie"
 
     name: Mapped[str] = mapped_column(primary_key=True)
@@ -185,7 +179,7 @@ class Cookie(Base):
         return cookies
 
 
-class JobDetail(Base):
+class JobDetail(Base, TimeMixin):
     __tablename__ = "job_detail"
 
     company_encrypt_brand_id: Mapped[str] = mapped_column(comment="公司-id")
@@ -206,8 +200,13 @@ class JobDetail(Base):
     job_salary_description: Mapped[str] = mapped_column(comment="职位-薪资待遇, eg: 12-24K")
     job_description: Mapped[str] = mapped_column(comment="职位-职位详情")
 
+    @classmethod
+    async def save(cls, session: AsyncSession, job: "JobDetail") -> None:
+        _ = await session.merge(job)
+        await session.flush()
 
-class JobEvaluation(Base):
+
+class JobEvaluation(Base, TimeMixin):
     __tablename__ = "job_evaluation"
 
     job_encrypt_id: Mapped[str] = mapped_column(primary_key=True)
@@ -233,3 +232,8 @@ class JobEvaluation(Base):
 
     technical_depth_potential_score: Mapped[Decimal] = mapped_column(comment="技术潜力-0~5分")
     technical_depth_potential_reason: Mapped[str] = mapped_column(comment="技术潜力-打分原因")
+
+    @classmethod
+    async def save(cls, session: AsyncSession, evaluation: "JobEvaluation") -> None:
+        _ = await session.merge(evaluation)
+        await session.flush()

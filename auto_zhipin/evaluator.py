@@ -1,10 +1,9 @@
-import json
 import logging
 from decimal import Decimal
 from typing import TypedDict
 
 import pendulum
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from pydantic_ai import Agent
 
 from auto_zhipin.db import JobDetail, JobEvaluation
@@ -172,7 +171,7 @@ evaluator_agent = Agent(
 </Output>
 
 <ExampleOutput>
-{json.dumps(example_output, ensure_ascii=False, indent=2)}
+{TypeAdapter(Evaluation).dump_json(example_output, indent=2)}
 </ExampleOutput>
 """,
 )

@@ -227,7 +227,7 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
             # 导出cookies
             return await ctx.cookies()
 
-    async def query_jobs(
+    async def seek_jobs(
         self,
         from_url: str,
         count: int,
