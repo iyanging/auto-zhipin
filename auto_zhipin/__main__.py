@@ -209,6 +209,11 @@ def setup_logging():
                 "level": logging.getLevelName(logging.INFO),
                 "handlers": ["console"],
             },
+            "loggers": {
+                "httpx": {
+                    "level": logging.getLevelName(logging.WARNING),
+                },
+            },
         }
     )
 
