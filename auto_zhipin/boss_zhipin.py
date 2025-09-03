@@ -262,7 +262,9 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
 
         async def on_request_finished(req: PlaywrightRequest) -> None:
             # 保存左侧职位列表的响应
-            if req.url.startswith(self._get_job_list_url_prefix()):
+            if req.url.startswith(self._get_job_list_url_prefix()) or req.url.startswith(
+                self._get_job_search_url_prefix()
+            ):
                 job_list_resp = await self._parse_response(req, RawJobListResponse)
 
                 if job_list_resp is None:
@@ -272,6 +274,8 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
 
                 for job_summary in job_list_resp.zp_data.job_list:
                     encrypt_job_id_to_job_summary[job_summary.encrypt_job_id] = job_summary
+
+                self.logger.info("job-list updated %d jobs", len(job_list_resp.zp_data.job_list))
 
             # 保存右侧职位详情的响应
             elif req.url.startswith(self._get_job_detail_url_prefix()):
@@ -309,6 +313,8 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
 
                 # 通过点击左侧职位，触发右侧职位详情的拉取
                 await job_list[job_list_ix].click()
+                # 等待右侧刷新完成
+                await expect(page.locator(".job-detail-container .job-name")).to_be_visible()
 
                 # 立即更新 ix
                 job_list_ix += 1
@@ -319,6 +325,8 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
                 if await filter_func(job_detail):
                     job_summary = encrypt_job_id_to_job_summary[job_detail.job_info.encrypt_id]
                     job = self._build_job_detail(job_summary, job_detail)
+
+                    queried_count += 1
 
                     yield job
 
@@ -353,6 +361,9 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
 
     def _get_job_list_url_prefix(self) -> str:
         return str(self.base_url / "wapi/zpgeek/pc/recommend/job/list.json")
+
+    def _get_job_search_url_prefix(self) -> str:
+        return str(self.base_url / "wapi/zpgeek/search/joblist.json")
 
     def _get_job_detail_url_prefix(self) -> str:
         return str(self.base_url / "wapi/zpgeek/job/detail.json")
