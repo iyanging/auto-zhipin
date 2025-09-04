@@ -134,7 +134,7 @@ class TimeMixin(MappedAsDataclass, kw_only=True):
         server_default=sa.func.now(),
         default_factory=lambda: pendulum.now(settings.timezone),
     )
-    updated_at: Mapped[datetime] = mapped_column(
+    last_updated_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
         server_default=sa.func.now(),
@@ -199,6 +199,9 @@ class JobDetail(Base, TimeMixin):
     job_degree: Mapped[str] = mapped_column(comment="职位-学历要求, eg: 本科")
     job_salary_description: Mapped[str] = mapped_column(comment="职位-薪资待遇, eg: 12-24K")
     job_description: Mapped[str] = mapped_column(comment="职位-职位详情")
+
+    interested_at: Mapped[datetime | None] = mapped_column(comment="标记为“感兴趣”的时间")
+    last_applied_at: Mapped[datetime | None] = mapped_column(comment="最后一次申请的时间")
 
     @classmethod
     async def save(cls, session: AsyncSession, job: "JobDetail") -> None:

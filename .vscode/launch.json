@@ -36,6 +36,15 @@
       ],
       "envFile": "${workspaceFolder}/.env",
       "justMyCode": false
+    },
+    {
+      "name": "review",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "auto_zhipin",
+      "args": ["review", "--port", "8000"],
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
     }
   ]
 }

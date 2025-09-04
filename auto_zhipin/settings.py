@@ -1,4 +1,6 @@
-__all__ = ["settings"]
+from pathlib import Path
+
+__all__ = ["APP_ROOT", "settings"]
 
 
 class Settings:
@@ -7,3 +9,5 @@ class Settings:
 
 
 settings = Settings()
+
+APP_ROOT = Path(__file__).parent

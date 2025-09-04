@@ -10,12 +10,21 @@ dependencies = [
     "asyncer>=0.0.8",
     "camoufox[geoip]>=0.4.11",
     "colorlog>=6.9.0",
+    "fastapi>=0.116.1",
+    "fastui>=0.8.0",
     "pendulum>=3.1.0",
     "pydantic>=2.11.7",
-    "pydantic-ai-slim[openai]>=0.8.0",
+    "pydantic-ai-slim[openai]>=0.8.1",
     "sqlalchemy[asyncio]>=2.0.43",
-    "typer-slim>=0.16.1",
+    "typer-slim>=0.17.3",
+    "uvicorn>=0.35.0",
     "yarl>=1.20.1",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "pyright>=1.1.405",
 ]
 
 [tool.alembic]
@@ -28,9 +37,6 @@ script_location = "%(here)s/migrations"
 
 # additional paths to be prepended to sys.path. defaults to the current working directory.
 prepend_sys_path = ["."]
-
-[dependency-groups]
-dev = ["pre-commit>=4.3.0", "pyright>=1.1.404"]
 
 [build-system]
 requires = ["hatchling"]

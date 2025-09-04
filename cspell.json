@@ -5,7 +5,8 @@
     ".git",
     "*.pyi",
     "migrations",
-    "alembic.ini"
+    "alembic.ini",
+    "auto_zhipin/assets"
   ],
   "dictionaryDefinitions": [],
   "dictionaries": [
@@ -30,6 +31,7 @@
     "browserforge",
     "camoufox",
     "deepseek",
+    "fastui",
     "isouter",
     "joblist",
     "kimi",

@@ -210,9 +210,9 @@ async def evaluate_job(
     evaluation = None
 
     async with evaluator_agent.run_stream(user_prompt, model=model) as result:
-        async for message, is_last in result.stream_structured():
+        async for message, is_last in result.stream_responses():
             try:
-                evaluation = await result.validate_structured_output(
+                evaluation = await result.validate_response_output(
                     message,
                     allow_partial=not is_last,
                 )

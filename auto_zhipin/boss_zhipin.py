@@ -446,6 +446,8 @@ class BossZhipin(AbstractAsyncContextManager["BossZhipin"]):
             job_degree=job_detail.job_info.degree_name,
             job_salary_description=job_detail.job_info.salary_desc,
             job_description=job_detail.job_info.post_description,
+            interested_at=None,
+            last_applied_at=None,
         )
 
     @staticmethod

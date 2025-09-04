@@ -1,23 +1,25 @@
 import asyncio
 import logging.config
 from pathlib import Path
-from typing import Annotated
+from random import randint
+from typing import Annotated, Any
 
 import colorlog
 import sqlalchemy as sa
 import typer
+import uvicorn
 from alembic.config import CommandLine as AlembicCommandLine
 from asyncer import runnify
 from pydantic_ai.models import Model
 
 from auto_zhipin.boss_zhipin import BossZhipin
-from auto_zhipin.db import Cookie, DatabaseContext, JobDetail, JobEvaluation
+from auto_zhipin.dashboard import app as dashboard_app
+from auto_zhipin.db import Cookie, JobDetail, JobEvaluation
+from auto_zhipin.deps import db
 from auto_zhipin.evaluator import evaluate_job
 from auto_zhipin.llm import LLMModel, build_model
 
 logger = logging.getLogger(__name__)
-
-db = DatabaseContext()
 
 
 class Logic:
@@ -170,6 +172,28 @@ async def evaluate(
     )
 
 
+@app.command()
+def review(
+    *,
+    host: Annotated[str, typer.Option(help="The host of dashboard")] = "localhost",
+    port: Annotated[int | None, typer.Option(help="The port of dashboard")] = None,
+):
+    if port is None:
+        port = randint(1000, 65534)  # noqa: S311
+
+    dashboard_app.router.add_event_handler(
+        "startup",
+        lambda: typer.launch(f"http://{host}:{port}"),
+    )
+
+    uvicorn.run(
+        dashboard_app,
+        host=host,
+        port=port,
+        log_config=get_logging_config(),
+    )
+
+
 @app.callback()
 def describe() -> None:
     setup_logging()
@@ -181,41 +205,42 @@ def alembic_upgrade_head():
     AlembicCommandLine("alembic").main(["upgrade", "head"])
 
 
+def get_logging_config() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "app": {
+                "class": (
+                    f"{colorlog.ColoredFormatter.__module__}.{colorlog.ColoredFormatter.__name__}"
+                ),
+                "format": (
+                    "%(process)-5d %(taskName)-8s %(asctime)s "
+                    "%(log_color)s%(levelname)-8s%(reset)s "
+                    "%(name)-24s %(log_color)s%(message)s%(reset)s"
+                ),
+            }
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "app",
+            }
+        },
+        "root": {
+            "level": logging.getLevelName(logging.INFO),
+            "handlers": ["console"],
+        },
+        "loggers": {
+            "httpx": {
+                "level": logging.getLevelName(logging.WARNING),
+            },
+        },
+    }
+
+
 def setup_logging():
-    logging.config.dictConfig(
-        {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "app": {
-                    "class": (
-                        f"{colorlog.ColoredFormatter.__module__}."
-                        f"{colorlog.ColoredFormatter.__name__}"
-                    ),
-                    "format": (
-                        "%(process)-5d %(taskName)-8s %(asctime)s "
-                        "%(log_color)s%(levelname)-8s%(reset)s "
-                        "%(name)-24s %(log_color)s%(message)s%(reset)s"
-                    ),
-                }
-            },
-            "handlers": {
-                "console": {
-                    "class": "logging.StreamHandler",
-                    "formatter": "app",
-                }
-            },
-            "root": {
-                "level": logging.getLevelName(logging.INFO),
-                "handlers": ["console"],
-            },
-            "loggers": {
-                "httpx": {
-                    "level": logging.getLevelName(logging.WARNING),
-                },
-            },
-        }
-    )
+    logging.config.dictConfig(get_logging_config())
 
 
 def main() -> None:
