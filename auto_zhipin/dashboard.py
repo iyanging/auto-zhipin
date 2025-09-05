@@ -1,5 +1,6 @@
 from collections.abc import Sequence
-from typing import Annotated, Any
+from dataclasses import dataclass
+from typing import Annotated, Any, Self
 
 import fastui
 import sqlalchemy as sa
@@ -8,7 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastui import AnyComponent, FastUI, prebuilt_html
 from fastui import components as c
-from pydantic import BaseModel, Field
+from fastui.components.display import DisplayLookup, DisplayMode
+from pydantic import BaseModel, Field, model_validator
 from pydantic.fields import FieldInfo
 
 from auto_zhipin.db import JobDetail
@@ -25,6 +27,26 @@ def fti(*, placeholder: str | None = None) -> FieldInfo:
         json_schema_extra["placeholder"] = placeholder
 
     return Field(json_schema_extra=json_schema_extra)
+
+
+@dataclass(kw_only=True)
+class TableColumn:
+    title: str | None = None
+    table_width_percent: int | None = None
+    mode: DisplayMode | None = None
+
+
+def tc(
+    *,
+    title: str | None,
+    mode: DisplayMode | None = None,
+    table_width_percent: int | None = None,
+) -> "TableColumn":
+    return TableColumn(
+        title=title,
+        mode=mode,
+        table_width_percent=table_width_percent,
+    )
 
 
 app = FastAPI()
@@ -66,15 +88,22 @@ class JobDetailParam(JobDetailSearch):
 
 
 class JobDetailView(BaseModel):
-    company_brand_name: str = Field(title="公司名称")
-    company_industry_name: str = Field(title="行业分类")
+    company_brand_name: Annotated[str, tc(title="公司名称")]
+    company_industry_name: Annotated[str, tc(title="行业分类")]
 
-    job_name: str = Field(title="职位名称")
-    job_location: str = Field(title="工作地")
-    job_experience_name: str = Field(title="经验要求")
-    job_degree: str = Field(title="学历要求")
-    job_salary_description: str = Field(title="薪资待遇")
-    job_description: str = Field(title="职位详情")
+    job_name: Annotated[str, tc(title="职位名称")]
+    job_location: Annotated[str, tc(title="工作地")]
+    job_experience_name: Annotated[str, tc(title="经验要求")]
+    job_degree: Annotated[str, tc(title="学历要求")]
+    job_salary_description: Annotated[str, tc(title="薪资待遇")]
+    job_description: Annotated[
+        str,
+        tc(
+            title="职位详情",
+            mode=DisplayMode.markdown,
+            table_width_percent=50,
+        ),
+    ]
 
 
 PAGE_JOB_LIST = "/job"
@@ -87,7 +116,7 @@ async def job_list(
     # FastAPI 要求 Query Param Model 必须是单参数才能被正确解析
     param: Annotated[JobDetailParam, Query(default_factory=JobDetailParam)],
 ) -> Sequence[AnyComponent]:
-    page_size = 15
+    page_size = 10
 
     q = sa.select(JobDetail).where(param.criteria())
 
@@ -113,8 +142,8 @@ async def job_list(
                     method="GOTO",
                     submit_url=".",
                 ),
-                c.Table(
-                    data_model=JobDetailView,  # 空数据时也能显示表头
+                ModeledTable(
+                    data_model=JobDetailView,
                     data=[
                         JobDetailView(
                             company_brand_name=d.company_brand_name,
@@ -154,3 +183,55 @@ async def html_landing(_) -> HTMLResponse:
             api_root_url=API_ROOT,
         )
     )
+
+
+class ModeledTable(c.Table):
+    data_model: type[BaseModel]  # pyright: ignore[reportGeneralTypeIssues, reportIncompatibleVariableOverride]
+
+    def __init__[T: BaseModel](
+        self,
+        *,
+        data_model: type[T],
+        data: Sequence[T],
+    ) -> None:
+        super().__init__(
+            data_model=data_model,
+            data=data,
+        )
+
+    @model_validator(mode="after")
+    def _re_fill_columns(self) -> Self:
+        # clear existing columns
+        self.columns = []
+
+        all_model_fields = {
+            **self.data_model.model_fields,
+            **self.data_model.model_computed_fields,
+        }
+
+        for name, field in all_model_fields.items():
+            column_def = (
+                next((m for m in field.metadata if isinstance(m, TableColumn)), None)
+                if isinstance(field, FieldInfo)
+                else None
+            )
+
+            if column_def is not None:
+                self.columns.append(
+                    DisplayLookup(
+                        field=name,
+                        mode=column_def.mode,
+                        title=column_def.title,
+                        table_width_percent=column_def.table_width_percent,
+                    )
+                )
+
+            else:
+                self.columns.append(
+                    DisplayLookup(
+                        field=name,
+                        title=field.title,
+                    )
+                )
+
+        return self
