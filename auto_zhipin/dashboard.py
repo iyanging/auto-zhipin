@@ -1,21 +1,23 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 
 import fastui
+import pendulum
 import sqlalchemy as sa
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Path, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastui import AnyComponent, FastUI, prebuilt_html
 from fastui import components as c
 from fastui.components.display import DisplayLookup, DisplayMode
+from fastui.events import AnyEvent, PageEvent
 from pydantic import BaseModel, Field, model_validator
 from pydantic.fields import FieldInfo
 
 from auto_zhipin.db import JobDetail
 from auto_zhipin.deps import db
-from auto_zhipin.settings import APP_ROOT
+from auto_zhipin.settings import APP_ROOT, settings
 
 
 def fti(*, placeholder: str | None = None) -> FieldInfo:
@@ -30,23 +32,14 @@ def fti(*, placeholder: str | None = None) -> FieldInfo:
 
 
 @dataclass(kw_only=True)
-class TableColumn:
+class tc:  # noqa: N801
+    """Table column."""
+
+    do_render: bool = True
     title: str | None = None
     table_width_percent: int | None = None
     mode: DisplayMode | None = None
-
-
-def tc(
-    *,
-    title: str | None,
-    mode: DisplayMode | None = None,
-    table_width_percent: int | None = None,
-) -> "TableColumn":
-    return TableColumn(
-        title=title,
-        mode=mode,
-        table_width_percent=table_width_percent,
-    )
+    on_click: AnyEvent | None = None
 
 
 app = FastAPI()
@@ -59,11 +52,11 @@ app.mount("/assets", StaticFiles(directory=APP_ROOT / "assets"))
 API_ROOT = "/api"
 
 
-def api(page_url: str) -> str:
-    if not page_url.startswith("/"):
+def api(postfix: str) -> str:
+    if not postfix.startswith("/"):
         raise ValueError("Page URL must start with `/`")
 
-    return f"{API_ROOT}{page_url}"
+    return f"{API_ROOT}{postfix}"
 
 
 @app.get("/", include_in_schema=False)
@@ -87,10 +80,27 @@ class JobDetailParam(JobDetailSearch):
     page: int = 1
 
 
+class JobDetailEvents:
+    interested_or_not = PageEvent(
+        name="interested_or_not",
+        context={"job_encrypt_id": "{job_encrypt_id}"},
+        clear=True,
+    )
+
+
 class JobDetailView(BaseModel):
+    is_interested: Annotated[
+        Literal["❤️", "🩶"],
+        tc(
+            title="",
+            table_width_percent=10,
+            on_click=JobDetailEvents.interested_or_not,
+        ),
+    ]
     company_brand_name: Annotated[str, tc(title="公司名称")]
     company_industry_name: Annotated[str, tc(title="行业分类")]
 
+    job_encrypt_id: Annotated[str, tc(do_render=False)]
     job_name: Annotated[str, tc(title="职位名称")]
     job_location: Annotated[str, tc(title="工作地")]
     job_experience_name: Annotated[str, tc(title="经验要求")]
@@ -146,8 +156,10 @@ async def job_list(
                     data_model=JobDetailView,
                     data=[
                         JobDetailView(
+                            is_interested=("❤️" if d.interested_at is not None else "🩶"),
                             company_brand_name=d.company_brand_name,
                             company_industry_name=d.company_industry_name,
+                            job_encrypt_id=d.job_encrypt_id,
                             job_name=d.job_name,
                             job_location=(
                                 f"{d.job_city_name} "
@@ -169,8 +181,37 @@ async def job_list(
                     page_query_param="page",
                 ),
             ],
-        )
+        ),
+        c.ServerLoad(
+            load_trigger=JobDetailEvents.interested_or_not,
+            path=PAGE_JOB_DETAIL_INTEREST_OR_NOT,
+            method="POST",
+        ),
     ]
+
+
+PAGE_JOB_DETAIL_INTEREST_OR_NOT = "/job_detail/{job_encrypt_id}/interested_or_not"
+
+
+@app.post(api(PAGE_JOB_DETAIL_INTEREST_OR_NOT))
+@db.transactional()
+async def job_detail_interest_or_not(
+    *,
+    job_encrypt_id: Annotated[str, Path()],
+):
+    job_detail = (
+        await db.get().execute(
+            sa.select(JobDetail).where(JobDetail.job_encrypt_id == job_encrypt_id)
+        )
+    ).scalar_one()
+
+    if job_detail.interested_at is None:
+        job_detail.interested_at = pendulum.now(settings.timezone)
+
+    else:
+        job_detail.interested_at = None
+
+    await JobDetail.save(db.get(), job_detail)
 
 
 @app.get("/{_:path}", include_in_schema=False)
@@ -211,20 +252,22 @@ class ModeledTable(c.Table):
 
         for name, field in all_model_fields.items():
             column_def = (
-                next((m for m in field.metadata if isinstance(m, TableColumn)), None)
+                next((m for m in field.metadata if isinstance(m, tc)), None)
                 if isinstance(field, FieldInfo)
                 else None
             )
 
             if column_def is not None:
-                self.columns.append(
-                    DisplayLookup(
-                        field=name,
-                        mode=column_def.mode,
-                        title=column_def.title,
-                        table_width_percent=column_def.table_width_percent,
+                if column_def.do_render:
+                    self.columns.append(
+                        DisplayLookup(
+                            field=name,
+                            mode=column_def.mode,
+                            title=column_def.title,
+                            table_width_percent=column_def.table_width_percent,
+                            on_click=column_def.on_click,
+                        )
                     )
-                )
 
             else:
                 self.columns.append(
