@@ -7,13 +7,12 @@ from typing import Annotated, Any
 import colorlog
 import sqlalchemy as sa
 import typer
-import uvicorn
 from alembic.config import CommandLine as AlembicCommandLine
 from asyncer import runnify
+from nicegui import ui
 from pydantic_ai.models import Model
 
 from auto_zhipin.boss_zhipin import BossZhipin
-from auto_zhipin.dashboard import app as dashboard_app
 from auto_zhipin.db import Cookie, JobDetail, JobEvaluation
 from auto_zhipin.deps import db
 from auto_zhipin.evaluator import evaluate_job
@@ -181,15 +180,13 @@ def review(
     if port is None:
         port = randint(1000, 65534)  # noqa: S311
 
-    dashboard_app.router.add_event_handler(
-        "startup",
-        lambda: typer.launch(f"http://{host}:{port}"),
-    )
+    from auto_zhipin import dashboard as _  # noqa: F401, PLC0415
 
-    uvicorn.run(
-        dashboard_app,
+    ui.run(
         host=host,
         port=port,
+        title="Auto Zhipin",
+        reload=False,
         log_config=get_logging_config(),
     )
 

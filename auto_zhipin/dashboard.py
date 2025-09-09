@@ -1,71 +1,338 @@
-from collections.abc import Sequence
+from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, Self
+from datetime import date, datetime
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Literal,
+    NotRequired,
+    Self,
+    TypedDict,
+    cast,
+    override,
+)
 
-import fastui
 import pendulum
 import sqlalchemy as sa
-from fastapi import FastAPI, Path, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from fastui import AnyComponent, FastUI, prebuilt_html
-from fastui import components as c
-from fastui.components.display import DisplayLookup, DisplayMode
-from fastui.events import AnyEvent, PageEvent
-from pydantic import BaseModel, Field, model_validator
+from annotated_types import Ge
+from fastapi import Query
+from fastapi.datastructures import QueryParams
+from nicegui import ui
+from nicegui.elements.mixins.value_element import ValueElement
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    TypeAdapter,
+    model_serializer,
+    model_validator,
+)
 from pydantic.fields import FieldInfo
 
 from auto_zhipin.db import JobDetail
 from auto_zhipin.deps import db
-from auto_zhipin.settings import APP_ROOT, settings
 
 
-def fti(*, placeholder: str | None = None) -> FieldInfo:
-    """Form Text Input."""
+class InputField[E: ValueElement, T](ABC):
+    @abstractmethod
+    def build(self, field_info: FieldInfo) -> E: ...
 
-    json_schema_extra: dict[str, Any] = {}
+    @abstractmethod
+    def deserialize(self, raw: Any | None) -> T | None: ...
 
-    if placeholder is not None:
-        json_schema_extra["placeholder"] = placeholder
+    @abstractmethod
+    def serialize(self, value: T | None) -> Any | None: ...
 
-    return Field(json_schema_extra=json_schema_extra)
+
+class InputGroup(BaseModel, revalidate_instances="always"): ...
 
 
 @dataclass(kw_only=True)
-class tc:  # noqa: N801
-    """Table column."""
+class TextInput(InputField[ui.input, str]):
+    label: str | None = None
+    placeholder: str | None = None
 
-    do_render: bool = True
-    title: str | None = None
-    table_width_percent: int | None = None
-    mode: DisplayMode | None = None
-    on_click: AnyEvent | None = None
+    @override
+    def build(self, field_info: FieldInfo) -> ui.input:
+        return ui.input(
+            label=self.label,
+            placeholder=self.placeholder,
+        )
 
+    @override
+    def deserialize(self, raw: Any | None) -> str | None:
+        return str(raw) if raw is not None and raw != "" else None  # noqa: PLC1901
 
-app = FastAPI()
-
-app.mount("/assets", StaticFiles(directory=APP_ROOT / "assets"))
-
-
-# FastUI 默认路由规则：
-#   页面：/abc -> 调用 -> /api/abc
-API_ROOT = "/api"
-
-
-def api(postfix: str) -> str:
-    if not postfix.startswith("/"):
-        raise ValueError("Page URL must start with `/`")
-
-    return f"{API_ROOT}{postfix}"
+    @override
+    def serialize(self, value: str | None) -> Any | None:
+        return value if value is not None and value != "" else None  # noqa: PLC1901
 
 
-@app.get("/", include_in_schema=False)
-def home() -> RedirectResponse:
-    return RedirectResponse(PAGE_JOB_LIST)
+type _DateRangeDict = dict[Literal["from"] | Literal["to"], str | None]
 
 
-class JobDetailSearch(BaseModel):
-    search_job_description: Annotated[str | None, fti(placeholder="搜索职位详情")] = None
+class _DateRangeStr(RootModel[str]):
+    __separator__: ClassVar[str] = " - "
+
+    _from: date | None
+    _to: date | None
+
+    @model_validator(mode="after")
+    def _init(self) -> Self:
+        groups = [
+            (date.fromisoformat(s) if (s := g.strip()) else None)
+            for g in self.root.split(self.__separator__, 1)
+        ]
+
+        if len(groups) == 2:  # noqa: PLR2004
+            self._from, self._to = groups
+
+        elif len(groups) == 1:
+            self._from, self._to = groups[0], None
+
+        else:
+            self._from, self._to = None, None
+
+        return self
+
+    @property
+    def from_(self) -> date | None:
+        return self._from
+
+    @property
+    def to(self) -> date | None:
+        return self._to
+
+    def dict_dump(self) -> _DateRangeDict:
+        return {
+            "from": self.from_ and self.from_.isoformat(),
+            "to": self.to and self.to.isoformat(),
+        }
+
+    @override
+    def __eq__(self, value: "DateRange | Any") -> bool:
+        return isinstance(value, DateRange) and self.dict_dump() == value.dict_dump()
+
+    @override
+    def __hash__(self):
+        return hash((self.from_, self.to))
+
+    if TYPE_CHECKING:
+
+        @override
+        def model_dump(self, **_: Any) -> str: ...
+
+
+class _DateRangeStruct(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    from_: Annotated[date | None, Field(alias="from")]
+    to: date | None
+
+    @model_serializer(mode="plain")
+    def __serialize__(self) -> str:
+        return f"{self.from_ or ''}{_DateRangeStr.__separator__}{self.to or ''}"
+
+    @model_validator(mode="before")
+    @classmethod
+    def __deserialize__(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        data = cast(dict[Any, Any], data.copy())
+
+        if "from" in data:
+            data["from"] = data["from"] or None
+
+        if "to" in data:
+            data["to"] = data["to"] or None
+
+        return data
+
+    def dict_dump(self) -> _DateRangeDict:
+        return {
+            "from": self.from_ and self.from_.isoformat(),
+            "to": self.to and self.to.isoformat(),
+        }
+
+    @override
+    def __eq__(self, value: "DateRange | Any") -> bool:
+        return isinstance(value, DateRange) and self.dict_dump() == value.dict_dump()
+
+    @override
+    def __hash__(self):
+        return hash((self.from_, self.to))
+
+    if TYPE_CHECKING:
+
+        @override
+        def model_dump(self, **_: Any) -> str: ...  # pyright: ignore[reportIncompatibleMethodOverride]
+
+
+DateRange = _DateRangeStruct | _DateRangeStr
+
+
+@dataclass(kw_only=True)
+class DateRangeInput(InputField[ui.date, DateRange]):
+    __type_adapter__: ClassVar[TypeAdapter[DateRange]] = TypeAdapter[DateRange](DateRange)
+
+    label: str | None = None
+
+    @override
+    def build(self, field_info: FieldInfo) -> ui.date:
+        with (
+            ui.input(label=self.label) as date_input,
+            ui.menu().props("no-parent-event") as menu,
+            ui.date()
+            .props("range")
+            .bind_value(
+                date_input,
+                forward=(lambda r: self.serialize(self.deserialize(r))),
+                backward=(lambda i: (d := self.deserialize(i)) and d.dict_dump()),
+            ) as date_picker,
+            date_input.add_slot("append"),
+        ):
+            _ = ui.icon("edit_calendar").on("click", menu.open).classes("cursor-pointer")
+
+        return date_picker
+
+    @override
+    def deserialize(self, raw: Any | None) -> DateRange | None:
+        if raw is not None and raw != "":  # noqa: PLC1901
+            return self.__type_adapter__.validate_python(raw)
+
+        else:
+            return None
+
+    @override
+    def serialize(self, value: DateRange | None) -> Any | None:
+        return value.model_dump() if value is not None else None
+
+
+@dataclass(kw_only=True)
+class SelectInput(InputField[ui.select, Any]):
+    label: str | None = None
+    options: dict[str, Any] | list[str]
+
+    @override
+    def build(self, field_info: FieldInfo) -> ui.select:
+        return ui.select(
+            self.options,
+            label=self.label,
+            clearable=field_info.is_required(),
+        )
+
+    @override
+    def deserialize(self, raw: Any | None) -> Any | None:
+        if not isinstance(raw, str):
+            raise TypeError("Select input value must be string")
+
+        if isinstance(self.options, list):
+            if raw not in self.options:
+                raise ValueError(f"Invalid select input key: {raw}")
+
+            return raw
+
+        else:
+            if raw not in self.options:
+                raise ValueError(f"Invalid select input key: {raw}")
+
+            return self.options[raw]
+
+    @override
+    def serialize(self, value: Any | None) -> Any | None:
+        if isinstance(self.options, list):
+            if value not in self.options:
+                raise ValueError(f"Invalid select input value: {value}")
+
+            return value
+
+        else:
+            for k, v in self.options.items():
+                if v == value:
+                    return k
+
+            raise ValueError(f"Invalid select input value: {value}")
+
+
+class ColumnDefinition(TypedDict):
+    name: str
+    label: str
+    field: str
+    required: NotRequired[bool | None]
+    align: NotRequired[Literal["left", "center", "right"] | None]
+    classes: NotRequired[str | None]
+    headerStyle: NotRequired[str | None]
+    headerClasses: NotRequired[str | None]
+
+
+class TableColumn[S](ABC):
+    @abstractmethod
+    def format_value(self, value: S | None) -> str | None: ...
+
+    def build(  # noqa: PLR6301
+        self,
+        field_name: str,
+        field_info: FieldInfo,
+    ) -> ColumnDefinition:
+        return {
+            "name": field_info.alias or field_name,
+            "label": field_info.title or field_info.alias or field_name,
+            "field": field_info.alias or field_name,
+            "required": field_info.is_required(),
+        }
+
+
+class IdColumn(TableColumn[int | str]):
+    @override
+    def format_value(self, value: int | str | None) -> str | None:
+        return str(value) if value is not None else None
+
+    @override
+    def build(
+        self,
+        field_name: str,
+        field_info: FieldInfo,
+    ) -> ColumnDefinition:
+        d = super().build(field_name, field_info)
+        d.update(
+            {
+                "classes": "hidden",
+                "headerClasses": "hidden",
+            }
+        )
+        return d
+
+
+class TextColumn(TableColumn[str]):
+    @override
+    def format_value(self, value: str | None) -> str | None:
+        return value
+
+
+class DateTimeColumn(TableColumn[datetime]):
+    format: str = "%Y-%m-%d %H:%M:%S"
+    timezone: str = "Asia/Shanghai"
+
+    @override
+    def format_value(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+
+        return (
+            pendulum.instance(value, self.timezone)
+            .in_timezone(self.timezone)
+            .strftime(self.format)
+        )
+
+
+class JobDetailSearch(InputGroup):
+    search_job_description: Annotated[str | None, TextInput(label="搜索职位详情")] = None
+    interested_at_between: Annotated[DateRange | None, DateRangeInput(label="筛选💗时间")] = None
 
     def criteria(self, job_detail_alias: type[JobDetail] = JobDetail) -> sa.BooleanClauseList:
         c = sa.true() & sa.true()
@@ -78,203 +345,226 @@ class JobDetailSearch(BaseModel):
 
 class JobDetailParam(JobDetailSearch):
     page: int = 1
+    page_size: int = 10
 
+    def update_pagination(self, pagination: "Pagination") -> Self:
+        new = self.model_copy(deep=True)
+        new.page_size = pagination.rows_per_page
+        new.page = pagination.page
 
-class JobDetailEvents:
-    interested_or_not = PageEvent(
-        name="interested_or_not",
-        context={"job_encrypt_id": "{job_encrypt_id}"},
-        clear=True,
-    )
+        return type(self).model_validate(new)
 
 
 class JobDetailView(BaseModel):
-    is_interested: Annotated[
-        Literal["❤️", "🩶"],
-        tc(
-            title="",
-            table_width_percent=10,
-            on_click=JobDetailEvents.interested_or_not,
-        ),
-    ]
-    company_brand_name: Annotated[str, tc(title="公司名称")]
-    company_industry_name: Annotated[str, tc(title="行业分类")]
+    company_brand_name: Annotated[str, TextColumn()] = Field(title="公司名称")
+    company_industry_name: Annotated[str, TextColumn()] = Field(title="行业分类")
 
-    job_encrypt_id: Annotated[str, tc(do_render=False)]
-    job_name: Annotated[str, tc(title="职位名称")]
-    job_location: Annotated[str, tc(title="工作地")]
-    job_experience_name: Annotated[str, tc(title="经验要求")]
-    job_degree: Annotated[str, tc(title="学历要求")]
-    job_salary_description: Annotated[str, tc(title="薪资待遇")]
-    job_description: Annotated[
-        str,
-        tc(
-            title="职位详情",
-            mode=DisplayMode.markdown,
-            table_width_percent=50,
-        ),
-    ]
+    job_encrypt_id: Annotated[str, IdColumn()]
+    job_name: Annotated[str, TextColumn()] = Field(title="职位名称")
+    job_location: Annotated[str, TextColumn()] = Field(title="工作地")
+    job_experience_name: Annotated[str, TextColumn()] = Field(title="经验要求")
+    job_degree: Annotated[str, TextColumn()] = Field(title="学历要求")
+    job_salary_description: Annotated[str, TextColumn()] = Field(title="薪资待遇")
+    job_description: Annotated[str, TextColumn()] = Field(title="职位详情")
 
 
-PAGE_JOB_LIST = "/job"
-
-
-@app.get(api(PAGE_JOB_LIST), response_model=FastUI, response_model_exclude_none=True)
+@ui.page("/")
 @db.transactional()
-async def job_list(
-    *,
-    # FastAPI 要求 Query Param Model 必须是单参数才能被正确解析
+async def dashboard(
+    # FastAPI 要求最多只能有一个Query Param Model，且只能是 BaseModel 子类
     param: Annotated[JobDetailParam, Query(default_factory=JobDetailParam)],
-) -> Sequence[AnyComponent]:
-    page_size = 10
-
+) -> None:
     q = sa.select(JobDetail).where(param.criteria())
 
     q_count = sa.select(sa.func.count()).select_from(q.subquery())
     q_data = (
         q.order_by(JobDetail.created_at.desc())
-        .offset((param.page - 1) * page_size)
-        .limit(page_size)
+        .offset((param.page - 1) * param.page_size)
+        .limit(param.page_size if param.page_size > 0 else None)
     )
 
     total = (await db.get().execute(q_count)).scalar_one()
     data = (await db.get().execute(q_data)).scalars().all()
 
-    return [
-        c.Page(
-            components=[
-                c.Heading(text="职位详情", level=1),
-                c.ModelForm(
-                    display_mode="inline",
-                    model=JobDetailSearch,
-                    submit_on_change=True,
-                    initial=param.model_dump(),
-                    method="GOTO",
-                    submit_url=".",
+    with ui.column().classes("w-full items-center"):
+        with ui.row(align_items="center"):
+            new_param = param.model_copy(deep=True)
+
+            def update_new_param(p: JobDetailParam) -> None:
+                nonlocal new_param
+                new_param = p
+
+            declare_input(param, on_value_change=update_new_param)
+
+            _ = ui.button(
+                "搜索",
+                on_click=(
+                    lambda: ui.navigate.to(
+                        ui.context.client.page.path + f"?{build_query_string(new_param)}"
+                    )
                 ),
-                ModeledTable(
-                    data_model=JobDetailView,
-                    data=[
-                        JobDetailView(
-                            is_interested=("❤️" if d.interested_at is not None else "🩶"),
-                            company_brand_name=d.company_brand_name,
-                            company_industry_name=d.company_industry_name,
-                            job_encrypt_id=d.job_encrypt_id,
-                            job_name=d.job_name,
-                            job_location=(
-                                f"{d.job_city_name} "
-                                f"{d.job_area_district} "
-                                f"{d.job_business_district}"
-                            ),
-                            job_experience_name=d.job_experience_name,
-                            job_degree=d.job_degree,
-                            job_salary_description=d.job_salary_description,
-                            job_description=d.job_description,
-                        )
-                        for d in data
-                    ],
-                ),
-                c.Pagination(
-                    page=param.page,
-                    page_size=page_size,
-                    total=total,
-                    page_query_param="page",
-                ),
-            ],
-        ),
-        c.ServerLoad(
-            load_trigger=JobDetailEvents.interested_or_not,
-            path=PAGE_JOB_DETAIL_INTEREST_OR_NOT,
-            method="POST",
-        ),
-    ]
-
-
-PAGE_JOB_DETAIL_INTEREST_OR_NOT = "/job_detail/{job_encrypt_id}/interested_or_not"
-
-
-@app.post(api(PAGE_JOB_DETAIL_INTEREST_OR_NOT))
-@db.transactional()
-async def job_detail_interest_or_not(
-    *,
-    job_encrypt_id: Annotated[str, Path()],
-):
-    job_detail = (
-        await db.get().execute(
-            sa.select(JobDetail).where(JobDetail.job_encrypt_id == job_encrypt_id)
-        )
-    ).scalar_one()
-
-    if job_detail.interested_at is None:
-        job_detail.interested_at = pendulum.now(settings.timezone)
-
-    else:
-        job_detail.interested_at = None
-
-    await JobDetail.save(db.get(), job_detail)
-
-
-@app.get("/{_:path}", include_in_schema=False)
-async def html_landing(_) -> HTMLResponse:
-    # Use local assets instead of CDN
-    fastui._PREBUILT_CDN_URL = "/assets"  # pyright: ignore[reportPrivateUsage] # noqa: SLF001
-    return HTMLResponse(
-        prebuilt_html(
-            title="Auto Zhipin",
-            api_root_url=API_ROOT,
-        )
-    )
-
-
-class ModeledTable(c.Table):
-    data_model: type[BaseModel]  # pyright: ignore[reportGeneralTypeIssues, reportIncompatibleVariableOverride]
-
-    def __init__[T: BaseModel](
-        self,
-        *,
-        data_model: type[T],
-        data: Sequence[T],
-    ) -> None:
-        super().__init__(
-            data_model=data_model,
-            data=data,
-        )
-
-    @model_validator(mode="after")
-    def _re_fill_columns(self) -> Self:
-        # clear existing columns
-        self.columns = []
-
-        all_model_fields = {
-            **self.data_model.model_fields,
-            **self.data_model.model_computed_fields,
-        }
-
-        for name, field in all_model_fields.items():
-            column_def = (
-                next((m for m in field.metadata if isinstance(m, tc)), None)
-                if isinstance(field, FieldInfo)
-                else None
+                icon="search",
             )
 
-            if column_def is not None:
-                if column_def.do_render:
-                    self.columns.append(
-                        DisplayLookup(
-                            field=name,
-                            mode=column_def.mode,
-                            title=column_def.title,
-                            table_width_percent=column_def.table_width_percent,
-                            on_click=column_def.on_click,
-                        )
+        with ui.row(align_items="center"):
+            declare_table(
+                JobDetailView,
+                [
+                    JobDetailView(
+                        company_brand_name=d.company_brand_name,
+                        company_industry_name=d.company_industry_name,
+                        job_encrypt_id=d.job_encrypt_id,
+                        job_name=d.job_name,
+                        job_location=(
+                            f"{d.job_city_name} {d.job_area_district} {d.job_business_district}"
+                        ),
+                        job_experience_name=d.job_experience_name,
+                        job_degree=d.job_degree,
+                        job_salary_description=d.job_salary_description,
+                        job_description=d.job_description,
                     )
-
-            else:
-                self.columns.append(
-                    DisplayLookup(
-                        field=name,
-                        title=field.title,
+                    for d in data
+                ],
+                Pagination(
+                    rowsNumber=total,
+                    rowsPerPage=param.page_size,
+                    page=param.page,
+                ),
+                on_pagination_change=(
+                    lambda p: ui.navigate.to(
+                        ui.context.client.page.path
+                        + f"?{build_query_string(param.update_pagination(p))}"
                     )
-                )
+                ),
+            )
 
-        return self
+
+def declare_input[IG: InputGroup](
+    initial: IG,
+    on_value_change: Callable[[IG], Awaitable[Any] | Any],
+) -> None:
+    state = initial.model_copy(deep=True)
+
+    def update_state(
+        field_name: str,
+        input_field: InputField[ValueElement, Any],
+        value: Any,
+    ) -> Awaitable[None] | None:
+        nonlocal state
+
+        try:
+            parsed = input_field.deserialize(value)
+
+        except Exception:  # noqa: BLE001
+            # invalid value, do nothing
+            return
+
+        else:
+            if getattr(state, field_name) == parsed:
+                # same value as before, do nothing
+                return
+
+            state = type(state).model_validate(state.model_copy(update={field_name: parsed}))
+
+            return on_value_change(state)
+
+    for field_name, field_info in type(initial).__pydantic_fields__.items():
+        initial_field_value = getattr(initial, field_name)
+
+        metadata_list = [
+            cast(InputField[ValueElement, Any], m)
+            for m in field_info.metadata
+            if isinstance(m, InputField)
+        ]
+
+        if not metadata_list:
+            continue
+
+        input_field, *extra = metadata_list
+
+        if extra:
+            raise TypeError("Input field can only have one metadata")
+
+        element = input_field.build(field_info)
+        element.set_value(input_field.serialize(initial_field_value))
+        _ = element.on_value_change(
+            lambda e, field_name=field_name, input_field=input_field: update_state(
+                field_name,
+                input_field,
+                e.value,
+            )
+        )
+
+
+def build_query_string(param: BaseModel) -> str:
+    item_dict = param.model_dump(
+        mode="json",
+        by_alias=True,
+        exclude_unset=True,
+        exclude_none=True,
+        exclude_defaults=True,
+    )
+
+    # flatten list values
+    item_list = [
+        (k, i)
+        for k, v in item_dict.items()
+        for i in (cast(list[Any], v) if isinstance(v, list) else [v])
+    ]
+
+    return str(QueryParams(item_list))
+
+
+class Pagination(BaseModel):
+    rows_number: int = Field(alias="rowsNumber", ge=0)
+    rows_per_page: Literal[0] | Annotated[int, Ge(1)] = Field(alias="rowsPerPage")
+    page: int = Field(ge=1)
+
+
+def declare_table[M: BaseModel](
+    model: type[M],
+    data: Sequence[M],
+    pagination: Pagination,
+    on_pagination_change: Callable[[Pagination], Awaitable[Any] | Any],
+) -> None:
+    columns: list[ColumnDefinition] = []
+    id_column: ColumnDefinition | None = None
+
+    for field_name, field_info in model.__pydantic_fields__.items():
+        metadata_list = [
+            cast(TableColumn[Any], m) for m in field_info.metadata if isinstance(m, TableColumn)
+        ]
+
+        if not metadata_list:
+            continue
+
+        table_column, *extra = metadata_list
+
+        if extra:
+            raise TypeError("Table column can only have one metadata")
+
+        column_def = table_column.build(field_name, field_info)
+        columns.append(column_def)
+
+        if isinstance(table_column, IdColumn):
+            if id_column is not None:
+                raise ValueError("Table can only have one IdColumn")
+
+            id_column = column_def
+
+    rows = [d.model_dump(mode="json", by_alias=True) for d in data]
+
+    def on_request(e: dict[str, Any]) -> Awaitable[Any] | Any:
+        new_page = Pagination.model_validate(e["pagination"])
+
+        if new_page != pagination:
+            return on_pagination_change(new_page)
+
+    table = ui.table(
+        columns=columns,  # pyright: ignore[reportArgumentType]
+        rows=rows,
+        row_key=(id_column["name"] if id_column else ""),
+        pagination=pagination.model_dump(mode="json", by_alias=True),
+    )
+
+    _ = table.on("request", lambda e: on_request(e.args))

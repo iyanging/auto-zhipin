@@ -45,6 +45,13 @@
       "args": ["review", "--port", "8000"],
       "envFile": "${workspaceFolder}/.env",
       "justMyCode": false
+    },
+    {
+      "name": "Debug Any",
+      "type": "debugpy",
+      "request": "launch",
+      "purpose": ["debug-in-terminal", "debug-test"],
+      "justMyCode": false
     }
   ]
 }
