@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vue (CDN) - Table + Query + Pagination Example</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <!-- Element Plus 样式（CDN） -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/element-plus/dist/index.css"
+    />
+    <style>
+      /* 少量样式用于长文本截断 */
+      .long-text {
+        max-width: 320px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <el-container>
+        <el-header
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          "
+        >
+          <div style="font-weight: 600; font-size: 18px">
+            示例：CDN 引入的 Vue + Element Plus 表格（含查询 / 分页 / 详情 /
+            ❤️动作）
+          </div>
+          <div style="font-size: 12px; color: #888">
+            注意：请求已被 mock，见代码注释
+          </div>
+        </el-header>
+
+        <el-main>
+          <!-- 查询区：从 URL query 解析初始值，搜索后更新 URL 并重新拉取 -->
+          <div class="controls">
+            <el-input
+              v-model="query.name"
+              placeholder="Name 包含"
+              style="width: 220px"
+            ></el-input>
+
+            <el-select
+              v-model="query.active"
+              placeholder="Active"
+              style="width: 140px"
+            >
+              <el-option label="任意" value=""></el-option>
+              <el-option label="是" value="true"></el-option>
+              <el-option label="否" value="false"></el-option>
+            </el-select>
+
+            <el-date-picker
+              v-model="query.since"
+              type="date"
+              placeholder="从...日期"
+              style="width: 160px"
+              value-format="yyyy-MM-dd"
+            >
+            </el-date-picker>
+
+            <el-button type="primary" @click="onSearch">查询</el-button>
+            <el-button @click="onReset">重置</el-button>
+          </div>
+
+          <!-- 表格 -->
+          <el-table
+            :data="items"
+            v-loading="loading"
+            style="width: 100%"
+            :row-key="row => row.id"
+          >
+            <!-- 第一列：心形按钮，按钮是否置灰取决于 row.canFav -->
+            <el-table-column label="" width="80">
+              <template #default="{ row }">
+                <el-button
+                  type="text"
+                  :disabled="!row.canFav || row.favLoading"
+                  @click="onFavClick(row)"
+                  style="font-size: 18px"
+                  :title="row.canFav ? '喜欢/取消喜欢' : '不可喜欢'"
+                >
+                  <span :style="{opacity: row.canFav ? 1 : 0.35}">💗</span>
+                </el-button>
+                <el-spinner
+                  v-if="row.favLoading"
+                  style="display: inline-block; margin-left: 6px"
+                ></el-spinner>
+              </template>
+            </el-table-column>
+
+            <!-- 第二列：详情按钮 -->
+            <el-table-column label="" width="64">
+              <template #default="{ row }">
+                <el-button icon @click="showDetail(row)" circle title="详情"
+                  >ℹ️</el-button
+                >
+              </template>
+            </el-table-column>
+
+            <!-- 示例数据列：字符串、时间、长文本、数字 -->
+            <el-table-column
+              prop="name"
+              label="名称"
+              min-width="160"
+            ></el-table-column>
+
+            <el-table-column label="创建时间" min-width="160">
+              <template #default="{ row }">
+                <span>{{ formatDatetime(row.createdAt) }}</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="描述" min-width="260">
+              <template #default="{ row }">
+                <!-- 长文本截断，悬浮显示全部 -->
+                <el-tooltip effect="dark" :content="row.desc" placement="top">
+                  <span class="long-text">{{ row.desc }}</span>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="价格" width="120" align="right">
+              <template #default="{ row }">
+                <span>{{ formatFloat(row.price) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <!-- 分页 -->
+          <div
+            style="display: flex; justify-content: flex-end; margin-top: 12px"
+          >
+            <el-pagination
+              :current-page="pagination.page"
+              :page-size="pagination.pageSize"
+              :page-sizes="[5,10,20,50]"
+              :total="pagination.total"
+              layout="sizes, prev, pager, next, jumper"
+              @current-change="handlePageChange"
+              @size-change="handleSizeChange"
+            >
+            </el-pagination>
+          </div>
+
+          <!-- 详情弹窗（拟态框） -->
+          <el-dialog
+            :visible.sync="detailVisible"
+            width="50%"
+            :title="'ID: ' + (selected?.id ?? '')"
+          >
+            <div v-if="selected">
+              <el-descriptions :column="1" border>
+                <el-descriptions-item label="名称"
+                  >{{ selected.name }}</el-descriptions-item
+                >
+                <el-descriptions-item label="创建时间"
+                  >{{ formatDatetime(selected.createdAt)
+                  }}</el-descriptions-item
+                >
+                <el-descriptions-item label="描述"
+                  >{{ selected.desc }}</el-descriptions-item
+                >
+                <el-descriptions-item label="价格"
+                  >{{ formatFloat(selected.price) }}</el-descriptions-item
+                >
+                <el-descriptions-item label="可喜欢"
+                  >{{ selected.canFav ? '是' : '否' }}</el-descriptions-item
+                >
+              </el-descriptions>
+              <pre
+                style="
+                  background: #f7f7f9;
+                  padding: 8px;
+                  border-radius: 6px;
+                  margin-top: 12px;
+                  max-height: 320px;
+                  overflow: auto;
+                "
+              >
+{{ JSON.stringify(selected, null, 2) }}
+            </pre
+              >
+            </div>
+            <span slot="footer" class="dialog-footer">
+              <el-button @click="detailVisible = false">关闭</el-button>
+            </span>
+          </el-dialog>
+        </el-main>
+      </el-container>
+    </div>
+
+    <!-- 使用 importmap 指向 CDN 的 ESM 入口（对现代浏览器而言是主流做法） -->
+    <script type="importmap">
+      {
+        "imports": {
+          "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.js",
+          "element-plus": "https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.min.mjs"
+        }
+      }
+    </script>
+
+    <!-- 主逻辑：使用 ESM import（不依赖本地打包） -->
+    <script type="module">
+      import { createApp, reactive, ref, onMounted } from "vue";
+      import ElementPlus from "element-plus";
+
+      // 工具：sleep
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      // mock 数据生成器（用于演示）
+      function mockList(params) {
+        const page = Number(params.page || 1);
+        const pageSize = Number(params.pageSize || 10);
+        const total = 137;
+        const items = [];
+        const start = (page - 1) * pageSize;
+        for (let i = 0; i < pageSize; i++) {
+          const id = start + i + 1;
+          items.push({
+            id,
+            name: `项目 ${id}${
+              params.name ? "（filter:" + params.name + ")" : ""
+            }`,
+            canFav: id % 4 !== 0, // 每 4 个其中一个不可喜欢，示意置灰
+            favLoading: false, // 本地状态：喜欢操作的 loading
+            hearted: Math.random() > 0.7, // 是否已经喜欢（示例）
+            createdAt: new Date(Date.now() - id * 3600 * 1000).toISOString(),
+            desc: "这是示例描述。".repeat((id % 5) + 1),
+            price: Number((Math.random() * 1000).toFixed(2)),
+          });
+        }
+        return { total, items };
+      }
+
+      const App = {
+        setup() {
+          // 查询表单模型；注意值会反序列化/序列化到 URL query
+          const query = reactive({
+            name: "",
+            active: "", // '', 'true', 'false'
+            since: null, // 日期，value-format yyyy-MM-dd
+          });
+
+          // 列表与分页
+          const items = ref([]);
+          const loading = ref(false);
+          const pagination = reactive({ page: 1, pageSize: 10, total: 0 });
+
+          // 详情弹窗
+          const detailVisible = ref(false);
+          const selected = ref(null);
+
+          // 初始化：从 URL 解析 query 与分页
+          function parseUrlToState() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.has("name")) query.name = params.get("name");
+            if (params.has("active")) query.active = params.get("active");
+            if (params.has("since")) query.since = params.get("since"); // 保留 yyyy-MM-dd 格式
+            if (params.has("page"))
+              pagination.page = Number(params.get("page")) || 1;
+            if (params.has("pageSize"))
+              pagination.pageSize = Number(params.get("pageSize")) || 10;
+          }
+
+          // 把当前的查询 + 分页写回 URL（不会触发页面跳转）
+          function syncStateToUrl() {
+            const params = new URLSearchParams();
+            if (query.name) params.set("name", query.name);
+            if (query.active) params.set("active", query.active);
+            if (query.since) params.set("since", query.since);
+            params.set("page", String(pagination.page));
+            params.set("pageSize", String(pagination.pageSize));
+            const newUrl = location.pathname + "?" + params.toString();
+            history.replaceState(null, "", newUrl);
+          }
+
+          // 将表单/分页组装为后端查询参数
+          function buildParams() {
+            const p = {
+              name: query.name || undefined,
+              active: query.active || undefined,
+              since: query.since || undefined,
+              page: pagination.page,
+              pageSize: pagination.pageSize,
+            };
+            // 移除 undefined 字段
+            Object.keys(p).forEach((k) => p[k] === undefined && delete p[k]);
+            return p;
+          }
+
+          // 拉取列表（这里注释真实 fetch，改为 sleep + mock）
+          async function fetchList() {
+            loading.value = true;
+            const params = buildParams();
+
+            // ========== 真实 fetch 的示例（部署时取消注释并调整 URL / headers / error handling） ==========
+            /*
+          const url = '/api/items?' + new URLSearchParams(params)
+          const resp = await fetch(url, {
+            method: 'GET',
+            credentials: 'include', // 根据需要带 cookie
+            headers: { 'Accept': 'application/json' }
+          })
+          if (!resp.ok) {
+            console.error('列表拉取失败', resp.status)
+            loading.value = false
+            return
+          }
+          const json = await resp.json()
+          items.value = json.items
+          pagination.total = json.total
+          */
+            // ==========================================================================================
+
+            // mock 实现（演示）
+            await sleep(600);
+            const json = mockList(params);
+            items.value = json.items;
+            pagination.total = json.total;
+            loading.value = false;
+          }
+
+          // 点击 ❤️ 按钮时 POST（注意：真实环境请处理认证/CSRF）
+          async function onFavClick(row) {
+            if (!row.canFav) return;
+            row.favLoading = true;
+            // 真实 POST 示例（注释）
+            /*
+          await fetch(`/api/items/${row.id}/favorite`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toggle: true })
+          })
+          */
+            // mock：等待并切换状态
+            await sleep(400);
+            row.hearted = !row.hearted;
+            row.favLoading = false;
+          }
+
+          function showDetail(row) {
+            selected.value = row;
+            detailVisible.value = true;
+          }
+
+          function formatDatetime(s) {
+            if (!s) return "";
+            try {
+              return new Date(s).toLocaleString();
+            } catch (e) {
+              return s;
+            }
+          }
+          function formatFloat(n) {
+            if (n === null || n === undefined) return "";
+            return Number(n).toFixed(2);
+          }
+
+          // 查询操作：将 page 重置为 1，更新 URL，拉取数据
+          function onSearch() {
+            pagination.page = 1;
+            syncStateToUrl();
+            fetchList();
+          }
+          function onReset() {
+            query.name = "";
+            query.active = "";
+            query.since = null;
+            pagination.page = 1;
+            pagination.pageSize = 10;
+            syncStateToUrl();
+            fetchList();
+          }
+
+          // 分页回调
+          function handlePageChange(p) {
+            pagination.page = p;
+            syncStateToUrl();
+            fetchList();
+          }
+          function handleSizeChange(size) {
+            pagination.pageSize = size;
+            pagination.page = 1;
+            syncStateToUrl();
+            fetchList();
+          }
+
+          // 页面加载流程
+          onMounted(() => {
+            parseUrlToState();
+            // 初始拉取
+            fetchList();
+          });
+
+          return {
+            query,
+            items,
+            loading,
+            pagination,
+            onSearch,
+            onReset,
+            onFavClick,
+            showDetail,
+            detailVisible,
+            selected,
+            formatDatetime,
+            formatFloat,
+            handlePageChange,
+            handleSizeChange,
+          };
+        },
+      };
+
+      const app = createApp(App);
+      app.use(ElementPlus);
+      app.mount("#app");
+    </script>
+  </body>
+</html>
